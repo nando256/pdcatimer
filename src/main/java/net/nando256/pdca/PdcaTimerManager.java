@@ -56,7 +56,7 @@ final class PdcaTimerManager implements Listener {
     BarColor.PINK
   };
 
-  private static final int PROGRESS_SLOTS = 192;
+  private static final int PROGRESS_SLOTS = 180;
   private static final String[] STEP_COLOR_CODES = {
     "§c", "§9", "§a", "§e", "§5", "§f", "§b"
   };
@@ -180,8 +180,10 @@ final class PdcaTimerManager implements Listener {
             key,
             center,
             parsed.steps(),
-            parsed.mode(),
             parsed.totalDuration(),
+            parsed.displayMode(),
+            parsed.audienceMode(),
+            parsed.audienceNames(),
             starter.getUniqueId(),
             starter.getName());
     sessions.put(key, session);
@@ -199,22 +201,78 @@ final class PdcaTimerManager implements Listener {
   private ParsedBook parseBook(String firstPage) {
     String[] rawLines = firstPage.replace("\r", "").split("\n");
     List<String> stepLines = new ArrayList<>();
-    GaugeMode mode = GaugeMode.PER_STEP;
+    DisplayMode displayMode = DisplayMode.OVERALL_ONLY;
+    AudienceMode audienceMode = AudienceMode.NEARBY;
+    Set<String> audienceNames = new HashSet<>();
 
     for (String raw : rawLines) {
       String line = raw.trim();
       if (line.isEmpty()) continue;
       Matcher optionMatcher = OPTION_PATTERN.matcher(line);
-      if (optionMatcher.matches()) {
-        String option = optionMatcher.group(1).toLowerCase(Locale.ROOT);
-        if (option.contains("gauge2") || option.contains("total") || option.contains("stack")) {
-          mode = GaugeMode.TOTAL;
-        } else if (option.contains("gauge1") || option.contains("step") || option.contains("countdown")) {
-          mode = GaugeMode.PER_STEP;
+      if (!optionMatcher.matches()) {
+        stepLines.add(line);
+        continue;
+      }
+
+      String option = optionMatcher.group(1).toLowerCase(Locale.ROOT);
+      if (option.contains("display")) {
+        String value = option.replace("display", "").replace('=', ' ').trim();
+        String[] tokens = value.isEmpty() ? new String[0] : value.split("\\s+");
+        boolean hasOverall = false;
+        boolean hasStep = false;
+        boolean hasNone = false;
+        boolean hasBoth = false;
+        for (String token : tokens) {
+          if (token.isBlank()) continue;
+          if (token.contains("overall")) hasOverall = true;
+          if (token.contains("step")) hasStep = true;
+          if (token.equals("none") || token.equals("hide") || token.equals("off")) hasNone = true;
+          if (token.equals("both") || token.equals("all")) hasBoth = true;
+        }
+        if (hasNone) {
+          displayMode = DisplayMode.NONE;
+        } else if (hasBoth || (hasOverall && hasStep)) {
+          displayMode = DisplayMode.BOTH;
+        } else if (hasOverall) {
+          displayMode = DisplayMode.OVERALL_ONLY;
+        } else if (hasStep) {
+          displayMode = DisplayMode.PER_STEP_ONLY;
         }
         continue;
       }
+
+      if (option.contains("audience") || option.contains("user")) {
+        String value = option
+            .replace("audience", "")
+            .replace("user", "")
+            .replace('=', ' ')
+            .replace(',', ' ')
+            .trim();
+        String[] tokens = value.isEmpty() ? new String[0] : value.split("\\s+");
+        boolean anyToken = false;
+        for (String token : tokens) {
+          if (token.isBlank()) continue;
+          anyToken = true;
+          switch (token) {
+            case "nearby", "radius" -> audienceMode = AudienceMode.NEARBY;
+            case "all", "everyone", "global" -> audienceMode = AudienceMode.ALL;
+            case "none", "off", "hide" -> audienceMode = AudienceMode.NONE;
+            case "list", "users", "players" -> audienceMode = AudienceMode.LIST;
+            default -> {
+              audienceNames.add(token.toLowerCase(Locale.ROOT));
+              audienceMode = AudienceMode.LIST;
+            }
+          }
+        }
+        if (!anyToken) audienceMode = AudienceMode.NEARBY;
+        continue;
+      }
+
       stepLines.add(line);
+    }
+
+    if (audienceMode == AudienceMode.LIST && audienceNames.isEmpty()) {
+      audienceMode = AudienceMode.NEARBY;
     }
 
     List<PdcaStep> steps = parseSteps(stepLines);
@@ -222,7 +280,13 @@ final class PdcaTimerManager implements Listener {
     for (PdcaStep step : steps) {
       total = total.plus(step.duration());
     }
-    return new ParsedBook(steps, mode, total);
+
+    return new ParsedBook(
+        steps,
+        total,
+        displayMode,
+        audienceMode,
+        Collections.unmodifiableSet(audienceNames));
   }
 
   private List<PdcaStep> parseSteps(List<String> lines) {
@@ -321,9 +385,11 @@ final class PdcaTimerManager implements Listener {
     private final LecternKey key;
     private final Location center;
     private final List<PdcaStep> steps;
-    private final GaugeMode gaugeMode;
     private final Duration totalDuration;
     private final long totalDurationMillis;
+    private final DisplayMode displayMode;
+    private final AudienceMode audienceMode;
+    private final Set<String> audienceNames;
     private final long[] stepDurationsMillis;
     private final long[] stepStartOffsetsMillis;
     private final int[] stepSlotWidths;
@@ -347,14 +413,15 @@ final class PdcaTimerManager implements Listener {
         LecternKey key,
         Location center,
         List<PdcaStep> steps,
-        GaugeMode gaugeMode,
         Duration totalDuration,
+        DisplayMode displayMode,
+        AudienceMode audienceMode,
+        Set<String> audienceNames,
         UUID starter,
         String starterName) {
       this.key = key;
       this.center = center;
       this.steps = steps;
-      this.gaugeMode = gaugeMode;
       this.totalDuration = totalDuration;
       this.totalDurationMillis = Math.max(1L, totalDuration.toMillis());
       this.stepDurationsMillis = new long[steps.size()];
@@ -390,6 +457,9 @@ final class PdcaTimerManager implements Listener {
       if (steps.size() > 0 && slotsRemaining != 0) {
         stepSlotWidths[steps.size() - 1] += slotsRemaining;
       }
+      this.displayMode = displayMode;
+      this.audienceMode = audienceMode;
+      this.audienceNames = audienceNames;
       this.starter = starter;
       this.starterName = starterName;
     }
@@ -401,15 +471,23 @@ final class PdcaTimerManager implements Listener {
       }
       sessionStartMillis = System.currentTimeMillis();
 
-      overallBar = Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID);
-      overallBar.setProgress(0.0);
+      if (showOverall()) {
+        overallBar = Bukkit.createBossBar("", BarColor.WHITE, BarStyle.SOLID);
+        overallBar.setProgress(0.0);
+      } else {
+        overallBar = null;
+      }
 
-      countdownBar =
-          Bukkit.createBossBar(
-              "PDCA",
-              colorForIndex(0),
-              gaugeMode == GaugeMode.PER_STEP ? BarStyle.SEGMENTED_20 : BarStyle.SOLID);
-      countdownBar.setProgress(1.0);
+      if (showPerStep()) {
+        countdownBar =
+            Bukkit.createBossBar(
+                "PDCA",
+                colorForIndex(0),
+                BarStyle.SEGMENTED_20);
+        countdownBar.setProgress(1.0);
+      } else {
+        countdownBar = null;
+      }
 
       Player starterPlayer = Bukkit.getPlayer(starter);
       if (starterPlayer != null) addViewer(starterPlayer);
@@ -436,12 +514,17 @@ final class PdcaTimerManager implements Listener {
       currentStep = steps.get(index);
       stepStartMillis = System.currentTimeMillis();
 
-      countdownBar.setColor(colorForIndex(index));
-      countdownBar.setTitle(currentStep.label() + " remaining " + formatDuration(currentStep.duration()));
+      if (countdownBar != null) {
+        countdownBar.setColor(colorForIndex(index));
+        countdownBar.setTitle(currentStep.label() + " remaining " + formatDuration(currentStep.duration()));
+      }
       syncBossBarPlayers();
 
-      for (Player player : audience(center)) {
-        player.sendTitle("PDCA", currentStep.label(), titleFadeInTicks, titleStayTicks, titleFadeOutTicks);
+      for (Player player : messagePlayers()) {
+        String label = currentStep.label();
+        String mainTitle = label.contains(":" ) ? label.substring(label.indexOf(":" ) + 1).trim() : "";
+        String subTitle = label.contains(":" ) ? label.substring(0, label.indexOf(":" )).trim() : label;
+        player.sendTitle(mainTitle, subTitle, titleFadeInTicks, titleStayTicks, titleFadeOutTicks);
         player.playSound(center, startSound, 1f, 1f);
       }
 
@@ -462,9 +545,10 @@ final class PdcaTimerManager implements Listener {
         messageStarter("§c[PDCA] Timer cancelled because the book was removed.");
         return;
       }
-      for (Player player : audience(center)) {
+      for (Player player : messagePlayers()) {
         player.sendActionBar("§aTime for today's reflection!");
         player.playSound(center, endSound, 1f, 1f);
+        player.playSound(player.getLocation(), Sound.BLOCK_BELL_USE, 1f, 1f);
       }
       messageStarter("§a[PDCA] Timer completed.");
     }
@@ -490,7 +574,7 @@ final class PdcaTimerManager implements Listener {
               return;
             }
             String warning = step.label() + " has " + formatDuration(warnBefore) + " remaining";
-            for (Player player : audience(center)) {
+            for (Player player : messagePlayers()) {
               player.sendActionBar(warning);
               player.playSound(center, warnSound, 1f, 1f);
             }
@@ -510,9 +594,9 @@ final class PdcaTimerManager implements Listener {
       long now = System.currentTimeMillis();
       long elapsed = now - sessionStartMillis;
 
-      broadcastOverallProgress(elapsed);
+      if (showOverall()) broadcastOverallProgress(elapsed);
 
-      if (countdownBar != null && currentStep != null) {
+      if (showPerStep() && countdownBar != null && currentStep != null) {
         long stepElapsed = now - stepStartMillis;
         long durationMillis = Math.max(1L, currentStep.duration().toMillis());
         double remaining = Math.max(0.0, 1.0 - (double) stepElapsed / durationMillis);
@@ -551,13 +635,19 @@ final class PdcaTimerManager implements Listener {
         bar.append("§7|");
       }
       bar.append("§7]");
+      Duration remaining = clampToZero(totalDuration.minusMillis(clamped));
       double progress = totalDurationMillis == 0 ? 0.0 : (double) clamped / (double) totalDurationMillis;
-      overallBar.setProgress(Math.max(0.0, Math.min(1.0, progress)));
-      overallBar.setTitle(bar.toString());
+      if (overallBar != null) {
+        overallBar.setProgress(Math.max(0.0, Math.min(1.0, progress)));
+        overallBar.setTitle(bar + formatDuration(remaining));
+      }
     }
 
     private void syncBossBarPlayers() {
-      for (Player player : audience(center)) {
+      List<Player> current = audiencePlayers();
+      Set<UUID> active = new HashSet<>();
+      for (Player player : current) {
+        active.add(player.getUniqueId());
         addViewer(player);
       }
 
@@ -568,9 +658,70 @@ final class PdcaTimerManager implements Listener {
               removeViewer(player);
               return true;
             }
+
+            AudienceMode mode = audienceMode;
+            boolean allowed = switch (mode) {
+              case ALL -> true;
+              case LIST -> audienceNames.contains(player.getName().toLowerCase(Locale.ROOT));
+              case NONE -> false;
+              case NEARBY -> true;
+            };
+
+            if (!allowed) {
+              removeViewer(player);
+              return true;
+            }
+
+            // For LIST/NONE we already handled above; for NEARBY we keep viewers even if they moved away.
+            // However, when mode == NEARBY, we may want to drop players who never entered radius again when reconfigured.
+            if ((mode == AudienceMode.ALL || mode == AudienceMode.LIST) && !active.contains(uuid)) {
+              removeViewer(player);
+              return true;
+            }
+
             ensureViewer(player);
             return false;
           });
+    }
+
+    private List<Player> audiencePlayers() {
+      return switch (audienceMode) {
+        case ALL -> new ArrayList<>(plugin.getServer().getOnlinePlayers());
+        case LIST -> {
+          List<Player> players = new ArrayList<>();
+          for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (audienceNames.contains(player.getName().toLowerCase(Locale.ROOT))) {
+              players.add(player);
+            }
+          }
+          yield players;
+        }
+        case NONE -> Collections.emptyList();
+        default -> audience(center);
+      };
+    }
+
+    private List<Player> messagePlayers() {
+      List<Player> players = new ArrayList<>();
+      for (UUID uuid : viewers) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null && player.isOnline() && isPlayerAllowed(player)) {
+          players.add(player);
+        }
+      }
+      return players;
+    }
+
+    private List<Player> countdownPlayers() {
+      if (!showPerStep()) return Collections.emptyList();
+      List<Player> players = new ArrayList<>();
+      for (UUID uuid : viewers) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player != null && player.isOnline() && isPlayerAllowed(player)) {
+          players.add(player);
+        }
+      }
+      return players;
     }
 
     private void cancelTasks() {
@@ -605,7 +756,7 @@ final class PdcaTimerManager implements Listener {
     }
 
     private void addViewer(Player player) {
-      if (player == null) return;
+      if (player == null || !isPlayerAllowed(player)) return;
       if (viewers.add(player.getUniqueId())) {
         if (overallBar != null) overallBar.addPlayer(player);
         if (countdownBar != null) countdownBar.addPlayer(player);
@@ -615,7 +766,7 @@ final class PdcaTimerManager implements Listener {
     }
 
     private void ensureViewer(Player player) {
-      if (player == null) return;
+      if (player == null || !isPlayerAllowed(player)) return;
       if (overallBar != null && !overallBar.getPlayers().contains(player)) {
         overallBar.addPlayer(player);
       }
@@ -628,6 +779,24 @@ final class PdcaTimerManager implements Listener {
       if (player == null) return;
       if (overallBar != null) overallBar.removePlayer(player);
       if (countdownBar != null) countdownBar.removePlayer(player);
+    }
+
+    private boolean isPlayerAllowed(Player player) {
+      if (player == null) return false;
+      return switch (audienceMode) {
+        case ALL -> true;
+        case LIST -> audienceNames.contains(player.getName().toLowerCase(Locale.ROOT));
+        case NONE -> false;
+        case NEARBY -> true;
+      };
+    }
+
+    private boolean showOverall() {
+      return displayMode == DisplayMode.BOTH || displayMode == DisplayMode.OVERALL_ONLY;
+    }
+
+    private boolean showPerStep() {
+      return displayMode == DisplayMode.BOTH || displayMode == DisplayMode.PER_STEP_ONLY;
     }
 
     private BarColor colorForIndex(int idx) {
@@ -649,11 +818,25 @@ final class PdcaTimerManager implements Listener {
 
   private record PdcaStep(int id, Duration duration, String label) {}
 
-  private record ParsedBook(List<PdcaStep> steps, GaugeMode mode, Duration totalDuration) {}
+  private record ParsedBook(
+      List<PdcaStep> steps,
+      Duration totalDuration,
+      DisplayMode displayMode,
+      AudienceMode audienceMode,
+      Set<String> audienceNames) {}
 
-  private enum GaugeMode {
-    PER_STEP,
-    TOTAL
+  private enum DisplayMode {
+    BOTH,
+    OVERALL_ONLY,
+    PER_STEP_ONLY,
+    NONE
+  }
+
+  private enum AudienceMode {
+    NEARBY,
+    ALL,
+    LIST,
+    NONE
   }
 
   private record LecternKey(String world, int x, int y, int z) {
