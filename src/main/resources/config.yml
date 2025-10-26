@@ -1,0 +1,12 @@
+pdca:
+  enabled: true
+  radius: 10.0
+  warn_before: 5m
+  title:
+    fade_in_ticks: 10
+    stay_ticks: 60
+    fade_out_ticks: 10
+  sounds:
+    start: ENTITY_EXPERIENCE_ORB_PICKUP
+    warn: BLOCK_NOTE_BLOCK_BELL
+    end: UI_TOAST_CHALLENGE_COMPLETE
