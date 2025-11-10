@@ -1,6 +1,6 @@
 name: PDCATimer
 main: net.nando256.pdca.PdcaTimerPlugin
-version: 1.0.0
+version: ${version}
 api-version: '1.21.1'
 authors: [ 'nando256' ]
 description: 'Automatically run PDCA timers when a [PDCA] book is placed on a lectern.'

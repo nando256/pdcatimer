@@ -59,6 +59,14 @@ This project uses Gradle. To compile the plugin JAR:
 
 _(You may need network access so Gradle can download the Paper API and plugins.)_
 
+## Hangar Publishing
+
+- GitHub Actions workflow `.github/workflows/publish.yml` builds the plugin and uploads it to Hangar whenever `main` is updated or a `v*` tag is pushed.  
+- Add a repository secret named `HANGAR_API_TOKEN` that contains a Hangar API key with publish rights for the `pdcetimer` project.  
+- The workflow auto-derives the channel (`Release` for tags, `Snapshot` otherwise) and version (tags strip the `v` prefix, non-tag builds use `0.0.0-<sha>-SNAPSHOT`).  
+- You can run the same publish logic locally with: `./gradlew -Phangar.channel=Snapshot -Pversion.override=1.2.3 publishPluginPublicationToHangar`.  
+- Supported Paper versions for Hangar listings are configured via `paperVersion` in `gradle.properties` (comma-separated if you need multiple).
+
 ## License
 
 MIT
