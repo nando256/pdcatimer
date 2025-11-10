@@ -35,8 +35,9 @@ tasks.processResources {
 
 hangarPublish {
     publications.register("plugin") {
-        val hangarSlug =
-            providers.gradleProperty("hangar.slug").orElse(System.getenv("HANGAR_PROJECT_SLUG") ?: "pdcetimer")
+        val propertySlug = (findProperty("hangar.slug") as String?)?.trim()?.takeIf { it.isNotEmpty() }
+        val envSlug = System.getenv("HANGAR_PROJECT_SLUG")?.trim()?.takeIf { it.isNotEmpty() }
+        val hangarSlug = propertySlug ?: envSlug ?: "pdcetimer"
 
         id.set(hangarSlug)
 

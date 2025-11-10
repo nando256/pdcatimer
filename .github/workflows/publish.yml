@@ -8,6 +8,9 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    env:
+      HANGAR_PROJECT_SLUG: ${{ vars.HANGAR_PROJECT_SLUG }}
+      HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -36,8 +39,6 @@ jobs:
         run: ./gradlew -q clean build
 
       - name: Publish to Hangar
-        env:
-          HANGAR_API_TOKEN: ${{ secrets.HANGAR_API_TOKEN }}
         run: |
           ./gradlew \
             -Phangar.channel=${{ steps.meta.outputs.channel }} \

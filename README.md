@@ -62,11 +62,11 @@ _(You may need network access so Gradle can download the Paper API and plugins.)
 ## Hangar Publishing
 
 - GitHub Actions workflow `.github/workflows/publish.yml` builds the plugin and uploads it to Hangar whenever `main` is updated or a `v*` tag is pushed.  
-- Add a repository secret named `HANGAR_API_TOKEN` that contains a Hangar API key with publish rights for the `pdcetimer` project.  
+- Add a repository secret named `HANGAR_API_TOKEN` that contains a Hangar API key with publish rights for this project.  
 - The workflow auto-derives the channel (`Release` for tags, `Snapshot` otherwise) and version (tags strip the `v` prefix, non-tag builds use `0.0.0-<sha>-SNAPSHOT`).  
 - You can run the same publish logic locally with: `./gradlew -Phangar.channel=Snapshot -Pversion.override=1.2.3 publishPluginPublicationToHangar`.  
 - Supported Paper versions for Hangar listings are configured via `paperVersion` in `gradle.properties` (comma-separated if you need multiple).
-- If your Hangar project slug isn’t `pdcetimer`, set `hangar.slug=<your-slug>` in `gradle.properties` (or define the `HANGAR_PROJECT_SLUG` env/secret) so the publish task targets the correct project.
+- If your Hangar project slug isn’t `pdcetimer`, set `hangar.slug=<your-slug>` in `gradle.properties` or define the `HANGAR_PROJECT_SLUG` repo variable/secret so the publish task targets the correct project.
 
 ## License
 
