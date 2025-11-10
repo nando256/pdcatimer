@@ -35,7 +35,10 @@ tasks.processResources {
 
 hangarPublish {
     publications.register("plugin") {
-        id.set("pdcetimer")
+        val hangarSlug =
+            providers.gradleProperty("hangar.slug").orElse(System.getenv("HANGAR_PROJECT_SLUG") ?: "pdcetimer")
+
+        id.set(hangarSlug)
 
         version.set(project.version.toString())
 
