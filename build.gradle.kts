@@ -35,11 +35,8 @@ tasks.processResources {
 
 hangarPublish {
     publications.register("plugin") {
-        val propertySlug = (findProperty("hangar.slug") as String?)?.trim()?.takeIf { it.isNotEmpty() }
-        val envSlug = System.getenv("HANGAR_PROJECT_SLUG")?.trim()?.takeIf { it.isNotEmpty() }
-        val hangarSlug = propertySlug ?: envSlug ?: "pdcetimer"
 
-        id.set(hangarSlug)
+        id.set("PDCATimer")
 
         version.set(project.version.toString())
 
